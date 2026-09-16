@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI Intake Triage — one-page enablement</title>
+<style>
+  @page { size: Letter; margin: 14mm 16mm; }
+  body { font: 10.4pt/1.35 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 0; }
+  h1 { font-size: 17pt; margin: 0 0 2px; }
+  .sub { color: #555; font-size: 9pt; margin-bottom: 10px; }
+  h2 { font-size: 11.5pt; margin: 11px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
+  p, li { margin: 3px 0; }
+  ol, ul { padding-left: 18px; margin: 3px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 9.6pt; }
+  th, td { border: 1px solid #bbb; padding: 4px 6px; vertical-align: top; text-align: left; }
+  th { background: #eee; }
+  .g { background: #d9ead3; } .y { background: #fff2cc; } .r { background: #f4cccc; }
+  code { font-family: Menlo, Consolas, monospace; font-size: 9pt; background: #f3f3f3; padding: 0 3px; }
+  .foot { color: #666; font-size: 8.5pt; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>AI Intake Triage — what it does and how to use it</h1>
+<div class="sub">For intake staff and paralegals · Version 1 · Owner: Gerardo Ramírez</div>
+
+<h2>What this does</h2>
+<p>When a new intake arrives — a voicemail transcript, a website form, or a referral e-mail — you submit it through the <b>New intake</b> Google Form (paste the text or upload the file). Within a minute the assistant does three things:</p>
+<ol>
+  <li><b>Pulls out the key facts</b> — who the potential client is, how to reach the contact, the facility, the date, the injury, how they found us, and how urgent it looks — and, for every fact, records the exact words in the original where it found it.</li>
+  <li><b>Writes a five-sentence summary</b> an attorney can read in twenty seconds.</li>
+  <li><b>Adds a row</b> to the <b>Intake Review Queue</b> sheet with a colour-coded status.</li>
+</ol>
+<p>It does not call anyone, does not open a matter, and never deletes the original text (it is in the <code>source_text</code> column, and the file you uploaded stays in Drive).</p>
+
+<h2>The three statuses</h2>
+<table>
+  <tr><th style="width:24%">Status</th><th style="width:34%">Meaning</th><th>What you do</th></tr>
+  <tr class="g"><td><b>READY FOR ATTORNEY REVIEW</b></td><td>All core facts (who, how to reach them, where, what injury) were found and verified.</td><td>Read the summary, check the urgency, forward to the attorney.</td></tr>
+  <tr class="y"><td><b>NEEDS FOLLOW-UP</b></td><td>Something essential is missing or could not be verified. You also get an e-mail.</td><td><code>missing_fields</code> says what to ask; <code>contact_name</code> / <code>contact_phone</code> say whom. Make the call, then resubmit the intake with the new information (the row updates itself).</td></tr>
+  <tr class="r"><td><b>PIPELINE ERROR</b></td><td>The assistant could not process this intake at all. You also get an e-mail.</td><td>Handle the intake by hand, as you do today, and report it (see below).</td></tr>
+</table>
+<p>A <b>HIGH</b> urgency also sends an e-mail even when the row is green — that means “look today”, not “the AI decided”.</p>
+
+<h2>When to trust it</h2>
+<ul>
+  <li>A fact is trustworthy when it has a <b>source quote</b> next to it (open <code>record_json</code> at the far right, or click the cell). The assistant is built so that any fact <b>without</b> an exact quote from the original is thrown away and replaced with <code>NOT FOUND</code>.</li>
+  <li>So <b><code>NOT FOUND</code> is honest, not broken.</b> It means “the intake did not say this”, and it is your cue to ask.</li>
+  <li>The <code>warnings</code> column says <code>none</code> when every check passed. Anything else is a note about something the assistant refused to guess.</li>
+</ul>
+
+<h2>When NOT to trust it</h2>
+<ul>
+  <li><b>Urgency is a suggestion.</b> HIGH means look now; LOW never means ignore. The reason is in <code>urgency_reason</code>; judge it yourself.</li>
+  <li><b>Dates are kept as words.</b> “Right after Easter” stays exactly that; the assistant will not turn it into a calendar date. You do.</li>
+  <li><b>Labels can be a reading, not a copy.</b> “Referring attorney” next to a quote that says “I'm referring a matter” is a reasonable interpretation, verified as to where it came from — not a fact the caller stated.</li>
+  <li><b>Never act on the summary alone.</b> Before you call a client, open a matter, or decline a case, read the original text. It is one click away.</li>
+  <li>Messy voicemails can confuse <b>who is the caller and who is the injured person</b>. Double-check before you address someone.</li>
+</ul>
+
+<h2>When it breaks</h2>
+<p>Signs: a red row, rows that stop appearing after you submit, a fact with no quote, a summary that is not five sentences, or an e-mail with empty fields.</p>
+<ol>
+  <li>Process the intake manually, as you do today. Nothing is lost — the original is in the sheet, in Drive, and in your inbox.</li>
+  <li>Tell <b>Gerardo Ramírez</b> (workflow owner) with the <b>intake_id</b> from the sheet (or the time you submitted), what you expected, and a screenshot.</li>
+  <li>Do not edit the workflow yourself. If the owner is unavailable, keep working manually; the queue will catch up when the assistant is back.</li>
+</ol>
+<div class="foot">Synthetic data only during evaluation. Costs about 1.5 cents per intake.</div>
+</body>
+</html>
