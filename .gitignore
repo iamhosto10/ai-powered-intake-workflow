@@ -2,5 +2,5 @@
 .DS_Store
 node_modules/
 samples/intake-4-oversized.txt
-
-docs/
+# personal notes, not part of the deliverable
+docs/loom-script.md

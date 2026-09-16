@@ -131,7 +131,7 @@ samples/                          ← the three synthetic intakes (+ generator f
 outputs/                          ← real rows produced by the workflow
 screenshots/                      ← canvas, guard, execution, sheet, form, e-mails
 scripts/                          ← build-workflow, test-guard, diff-export, make-oversized-sample
-docs/                             ← enablement one-pager, Loom script
+docs/                             ← enablement one-pager (md, html, pdf)
 docker-compose.yml, .env.example  ← reproducible n8n
 ```
 
