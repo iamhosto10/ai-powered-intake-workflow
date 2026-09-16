@@ -1,0 +1,25 @@
+# n8n for the AI Intake Triage workflow — one command: `docker compose up -d`
+# Then open http://localhost:5678 and create the owner account.
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-intake-triage
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # Generate once: openssl rand -hex 24   (put it in .env — never commit .env)
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-America/Bogota}
+      - TZ=${GENERIC_TIMEZONE:-America/Bogota}
+      # Recipient of the follow-up / error alert e-mails (Gmail node). Read inside the workflow as
+      # {{ $env.ALERT_EMAIL }} so no personal address ever lands in the exported workflow JSON.
+      - ALERT_EMAIL=${ALERT_EMAIL:-}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_SECURE_COOKIE=false
+      - N8N_RUNNERS_ENABLED=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:
