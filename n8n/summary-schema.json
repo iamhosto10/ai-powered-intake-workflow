@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["intake_id", "summary"],
+  "properties": {
+    "intake_id": { "type": "string", "description": "Copy the Intake ID given at the top of the message, exactly" },
+    "summary": { "type": "string", "description": "Exactly five plain-English sentences in one paragraph" }
+  }
+}
