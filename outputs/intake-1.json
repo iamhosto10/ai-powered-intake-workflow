@@ -1,0 +1,70 @@
+{
+  "status": "READY FOR ATTORNEY REVIEW",
+  "urgency": "HIGH",
+  "urgency_reason": "The injured person is still at the facility where the fall occurred and the caller fears it will happen again.",
+  "client_name": "Gloria Okafor",
+  "summary": "The potential client is Gloria Okafor, an eighty-one-year-old resident of Maplewood Senior Living, who fell at the facility. The location was Maplewood Senior Living on Elm Street, and the date was stated as right after her cousin's wedding, the weekend after Easter, but no exact date was provided. She suffered a hip fracture and required surgery, according to a doctor at Mercy General, indicating a serious injury. The contact person's email is not provided, and Denise Okafor-Reyes, the daughter with power of attorney, can supply it at 312-555-0198. Given that Gloria remains at the facility where the fall occurred and there is concern it could happen again, the recommended next step is to contact Denise Okafor-Reyes immediately, as this matter is high urgency.",
+  "missing_fields": "contact_information.email",
+  "contact_name": "Denise Okafor-Reyes (daughter)",
+  "contact_phone": "312-555-0198",
+  "contact_email": "NOT FOUND",
+  "facility": "Maplewood Senior Living",
+  "injury_type": "hip fracture",
+  "date_of_incident": "right after my cousin's wedding, which was the weekend after Easter",
+  "referral_source": "neighbor",
+  "channel": "voicemail",
+  "submitted_by": "not provided",
+  "received_at": "27 Apr 2026 08:42",
+  "intake_id": "intake-1",
+  "warnings": "none",
+  "source_text": "[Voicemail transcript — SYNTHETIC TEST DATA, no real persons or facilities]\nReceived: Mon, 27 Apr 2026 08:42 · Main office line · Duration 2:11 · Auto-transcribed\n\nHi, um, yes, hello, this is Denise, Denise Okafor-Reyes, I'm calling about my mom. I got your number from my neighbor, she said you people handle, you know, nursing home stuff. So my mom is at Maplewood, the Maplewood Senior Living place, the one over on Elm Street, and she fell. Well — I should back up. She's been there since March. Her name is Gloria, Gloria Okafor, she's eighty-one. So a couple of weeks ago, it was right after Easter — no wait, it was right after my cousin's wedding, which was the weekend after Easter — anyway, she fell, and nobody called me for like a whole day. They said she was \"found on the floor\" in the morning. She broke her hip, the doctor at Mercy General said it's a hip fracture and she needed surgery, she had the surgery. But here's the thing, the aide told me, off the record, that the bed alarm wasn't even on. She's still at Maplewood right now, they sent her back after the hospital and I'm scared it's gonna happen again. Um, my number is 555-0142 — no, sorry, that's my old one, it's 555-0198, area code 312. 312-555-0198. Please call me back, I work nights so afternoons are best. Oh and I'm her daughter, I have power of attorney, I forgot to say that. Okay. Thank you. Bye.",
+  "processed_at": "16 Sep 2026 12:28",
+  "record": {
+    "_model": "claude-sonnet-5",
+    "_summary_sentence_count": 5,
+    "potential_client_name": {
+      "value": "Gloria Okafor",
+      "evidence": "Her name is Gloria, Gloria Okafor, she's eighty-one."
+    },
+    "contact_name": {
+      "value": "Denise Okafor-Reyes",
+      "evidence": "this is Denise, Denise Okafor-Reyes"
+    },
+    "relationship_to_client": {
+      "value": "daughter",
+      "evidence": "I'm her daughter, I have power of attorney"
+    },
+    "contact_information": {
+      "phone": {
+        "value": "312-555-0198",
+        "evidence": "312-555-0198."
+      },
+      "email": {
+        "value": "NOT FOUND",
+        "evidence": null
+      }
+    },
+    "facility_or_provider": {
+      "value": "Maplewood Senior Living",
+      "evidence": "my mom is at Maplewood, the Maplewood Senior Living place, the one over on Elm Street"
+    },
+    "date_of_incident": {
+      "value": "right after my cousin's wedding, which was the weekend after Easter",
+      "evidence": "no wait, it was right after my cousin's wedding, which was the weekend after Easter",
+      "normalized_iso": "NOT FOUND"
+    },
+    "injury_type": {
+      "value": "hip fracture",
+      "evidence": "the doctor at Mercy General said it's a hip fracture and she needed surgery"
+    },
+    "referral_source": {
+      "value": "neighbor",
+      "evidence": "I got your number from my neighbor, she said you people handle, you know, nursing home stuff."
+    },
+    "urgency_flag": {
+      "value": "HIGH",
+      "reason": "The injured person is still at the facility where the fall occurred and the caller fears it will happen again.",
+      "evidence": "She's still at Maplewood right now, they sent her back after the hospital and I'm scared it's gonna happen again."
+    }
+  }
+}

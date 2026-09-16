@@ -1,0 +1,70 @@
+{
+  "status": "READY FOR ATTORNEY REVIEW",
+  "urgency": "MEDIUM",
+  "urgency_reason": "An injury occurred but the person has been discharged and is stable, healing at home.",
+  "client_name": "Marcus T. Bellweather",
+  "summary": "Marcus T. Bellweather is a potential client who developed bedsores while staying at Riverbend Rehabilitation following knee surgery. The location was Riverbend Rehabilitation and the date was not provided. The injury involves stage 3 pressure sores that developed over a six week rehab stay, which appears serious given the stage 3 classification, though he has since been discharged and is healing at home. The date of incident and his contact phone number are not provided, and Marcus T. Bellweather himself can supply this information. Given that he is stable and healing, the recommended next step is prompt follow-up contact to gather the missing details, at medium urgency.",
+  "missing_fields": "contact_information.phone; date_of_incident",
+  "contact_name": "Marcus T. Bellweather (self)",
+  "contact_phone": "NOT FOUND",
+  "contact_email": "m.bellweather.test@example.com",
+  "facility": "Riverbend Rehabilitation",
+  "injury_type": "Bedsores / pressure ulcers",
+  "date_of_incident": "NOT FOUND",
+  "referral_source": "Google search",
+  "channel": "web_form",
+  "submitted_by": "not provided",
+  "received_at": "28 Apr 2026 14:03",
+  "intake_id": "intake-2",
+  "warnings": "none",
+  "source_text": "[Web form submission — Free Case Evaluation — website form — SYNTHETIC TEST DATA]\nSubmitted: 2026-04-28T14:03:00-05:00\nfull name: Marcus T. Bellweather\nemail: m.bellweather.test@example.com\nphone: (blank)\nwho is the injured person: Myself\ntype of injury: Bedsores / pressure ulcers\nfacility or provider: (blank)\ndate of incident: (blank)\nbrief description: Developed stage 3 sores during a 6 week rehab stay at Riverbend Rehabilitation after my knee surgery. Was told it was normal. Discharged now, still healing at home.\nhow did you hear about us: Google search\npreferred contact method: Email",
+  "processed_at": "16 Sep 2026 12:28",
+  "record": {
+    "_model": "claude-sonnet-5",
+    "_summary_sentence_count": 5,
+    "potential_client_name": {
+      "value": "Marcus T. Bellweather",
+      "evidence": "full name: Marcus T. Bellweather"
+    },
+    "contact_name": {
+      "value": "Marcus T. Bellweather",
+      "evidence": "full name: Marcus T. Bellweather"
+    },
+    "relationship_to_client": {
+      "value": "self",
+      "evidence": "who is the injured person: Myself"
+    },
+    "contact_information": {
+      "phone": {
+        "value": "NOT FOUND",
+        "evidence": null
+      },
+      "email": {
+        "value": "m.bellweather.test@example.com",
+        "evidence": "email: m.bellweather.test@example.com"
+      }
+    },
+    "facility_or_provider": {
+      "value": "Riverbend Rehabilitation",
+      "evidence": "Developed stage 3 sores during a 6 week rehab stay at Riverbend Rehabilitation after my knee surgery."
+    },
+    "date_of_incident": {
+      "value": "NOT FOUND",
+      "evidence": null,
+      "normalized_iso": "NOT FOUND"
+    },
+    "injury_type": {
+      "value": "Bedsores / pressure ulcers",
+      "evidence": "type of injury: Bedsores / pressure ulcers"
+    },
+    "referral_source": {
+      "value": "Google search",
+      "evidence": "how did you hear about us: Google search"
+    },
+    "urgency_flag": {
+      "value": "MEDIUM",
+      "reason": "An injury occurred but the person has been discharged and is stable, healing at home.",
+      "evidence": "Discharged now, still healing at home."
+    }
+  }
+}

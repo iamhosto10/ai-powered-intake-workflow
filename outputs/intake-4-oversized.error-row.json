@@ -1,0 +1,26 @@
+{
+  "status": "PIPELINE ERROR",
+  "urgency": "NOT FOUND",
+  "urgency_reason": "",
+  "client_name": "NOT FOUND",
+  "summary": "Not generated - the AI step failed. Read the source text and process this intake manually.",
+  "missing_fields": "all (not processed)",
+  "contact_name": "NOT FOUND",
+  "contact_phone": "NOT FOUND",
+  "contact_email": "NOT FOUND",
+  "facility": "NOT FOUND",
+  "injury_type": "NOT FOUND",
+  "date_of_incident": "NOT FOUND",
+  "referral_source": "NOT FOUND",
+  "channel": "voicemail",
+  "submitted_by": "n8n form",
+  "received_at": "16 Sep 2026 11:56",
+  "intake_id": "form-20260916T165611",
+  "warnings": "pipeline error: Bad request - please check your parameters",
+  "source_text": "[Voicemail system export — SYNTHETIC TEST DATA, no real persons or facilities]\nExport requested by: front desk · Range: 2025-10-01 to 2026-04-30 · Format: full log with transcripts\nWARNING: this export contains every event recorded by the PBX in the selected range.\n\n=== MESSAGE 1 of 4,118 ===\nReceived: Thu, 30 Apr 2026 11:05 · Main office line · Duration 0:48\nHi, this is Robert Anand, I'm calling for my father, Kumar Anand, he's at Lakeside Manor and he had a fall last Tuesday, April 21st, 2026. Left wrist fracture. My number is 312-555-0164. Please call me.\n\n=== EVENT LOG (all lines) ===\n2025-10-01 00:00:00 RING  ext=101 caller=+1312555XXXX trunk=SIP/1 duration=00:00:00 result=NO_ANSWER\n... (85,000 more log lines; the sheet cell holds the first 45,000 characters) ...\n\n[... truncated for the sheet: 6,291,467 characters in total ...]",
+  "processed_at": "16 Sep 2026 11:56",
+  "record": {
+    "_model": "claude-sonnet-5"
+  },
+  "_note": "Reproduce with: node scripts/make-oversized-sample.js, then upload samples/intake-4-oversized.txt through either form. The Anthropic API rejects the ~1.5M-token request (HTTP 400, not billed) before the model runs."
+}

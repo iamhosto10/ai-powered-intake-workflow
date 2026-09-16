@@ -1,0 +1,70 @@
+{
+  "status": "NEEDS FOLLOW-UP",
+  "urgency": "MEDIUM",
+  "urgency_reason": "An injury (pressure ulcers) is described as having occurred and there is no indication of ongoing danger, hospitalization, or death, but the client wants to move quickly.",
+  "client_name": "NOT FOUND",
+  "summary": "The potential client is an unnamed woman, referred by attorney Priya Venkataraman, who is believed to have developed pressure ulcers while a resident at Cedar Hollow Care Center. The location is Cedar Hollow Care Center, and the date was not provided. The injury is described as pressure ulcers that went unreported for some time, with no indication of hospitalization or death noted in the record. The potential client's name and the date of incident are missing, and Priya Venkataraman, the referring attorney, can supply this information at (773) 555-0177 or pvenkataraman.test@example.com. The recommended next step is to contact Priya Venkataraman promptly to obtain the missing details, with medium urgency given the desire to move quickly.",
+  "missing_fields": "potential_client_name; date_of_incident",
+  "contact_name": "Priya Venkataraman (referring attorney)",
+  "contact_phone": "(773) 555-0177",
+  "contact_email": "pvenkataraman.test@example.com",
+  "facility": "Cedar Hollow Care Center",
+  "injury_type": "pressure ulcers",
+  "date_of_incident": "NOT FOUND",
+  "referral_source": "Priya Venkataraman, Venkataraman Family Law, PLLC",
+  "channel": "referral_email",
+  "submitted_by": "not provided",
+  "received_at": "29 Apr 2026 16:47",
+  "intake_id": "intake-3",
+  "warnings": "none",
+  "source_text": "[Email — SYNTHETIC TEST DATA, no real persons or facilities]\nFrom: Priya Venkataraman <pvenkataraman.test@example.com>\nTo: intake@example-lawfirm.test\nDate: Wed, 29 Apr 2026 16:47\nSubject: Referral — possible neglect matter, Cedar Hollow Care Center\n\nCounsel,\n\nHope you're well. I'm referring a matter that's outside our practice area. A longtime client of mine came to see me about his mother, who is a resident at Cedar Hollow Care Center. He believes she developed pressure ulcers there that went unreported for some time, and he has photos. He is understandably upset and wants to move quickly.\n\nI told him your firm handles these cases and that someone would reach out. He asked me not to share his details over email, so I'll let him contact you directly, or you can call my office and my assistant will connect you.\n\nLet me know if you need anything from me.\n\nBest regards,\nPriya Venkataraman\nVenkataraman Family Law, PLLC\nDirect: (773) 555-0177",
+  "processed_at": "16 Sep 2026 12:28",
+  "record": {
+    "_model": "claude-sonnet-5",
+    "_summary_sentence_count": 5,
+    "potential_client_name": {
+      "value": "NOT FOUND",
+      "evidence": null
+    },
+    "contact_name": {
+      "value": "Priya Venkataraman",
+      "evidence": "Priya Venkataraman"
+    },
+    "relationship_to_client": {
+      "value": "referring attorney",
+      "evidence": "I'm referring a matter that's outside our practice area."
+    },
+    "contact_information": {
+      "phone": {
+        "value": "(773) 555-0177",
+        "evidence": "Direct: (773) 555-0177"
+      },
+      "email": {
+        "value": "pvenkataraman.test@example.com",
+        "evidence": "From: Priya Venkataraman <pvenkataraman.test@example.com>"
+      }
+    },
+    "facility_or_provider": {
+      "value": "Cedar Hollow Care Center",
+      "evidence": "a resident at Cedar Hollow Care Center"
+    },
+    "date_of_incident": {
+      "value": "NOT FOUND",
+      "evidence": null,
+      "normalized_iso": "NOT FOUND"
+    },
+    "injury_type": {
+      "value": "pressure ulcers",
+      "evidence": "He believes she developed pressure ulcers there that went unreported for some time"
+    },
+    "referral_source": {
+      "value": "Priya Venkataraman, Venkataraman Family Law, PLLC",
+      "evidence": "Venkataraman Family Law, PLLC"
+    },
+    "urgency_flag": {
+      "value": "MEDIUM",
+      "reason": "An injury (pressure ulcers) is described as having occurred and there is no indication of ongoing danger, hospitalization, or death, but the client wants to move quickly.",
+      "evidence": "He is understandably upset and wants to move quickly."
+    }
+  }
+}
