@@ -1,0 +1,200 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "id": "2f46bfa9-dbf8-43c8-babe-36a0418fd6bc",
+      "name": "Google Form Responses",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Normalize Form Response\" — Code node, mode: Run Once for Each Item\n// One row of the Google Form's response sheet → { intake_id, channel, received_at, raw_text, submitted_by, file_id }.\n// Column names are the Form's question titles. They are matched loosely (case-insensitive, and the timestamp\n// column may be \"Timestamp\" or \"Marca temporal\" depending on the account's language), so a renamed question\n// does not silently break the intake.\n\nconst row = $json;\nconst keys = Object.keys(row);\nconst find = (re) => keys.find((k) => re.test(k));\n\nconst tsKey = find(/timestamp|marca temporal|fecha/i) || keys[0];\nconst channelKey = find(/^channel$|canal/i);\nconst textKey = find(/intake text|texto/i);\nconst nameKey = find(/your name|nombre/i);\nconst fileKey = find(/intake file|archivo|file/i);\n\nconst timestamp = String(row[tsKey] ?? '').trim();\nconst channel = String((channelKey && row[channelKey]) || 'other').trim();\nconst pasted = String((textKey && row[textKey]) || '').trim();\nconst submitted_by = String((nameKey && row[nameKey]) || '').trim() || 'not provided';\n\n// A file-upload answer is one or more Google Drive links: https://drive.google.com/open?id=<FILE_ID>\nconst fileAnswer = String((fileKey && row[fileKey]) || '');\nconst fileMatch = fileAnswer.includes('drive.google.com') ? fileAnswer.match(/[-\\w]{25,}/) : null;\nconst file_id = fileMatch ? fileMatch[0] : '';\n\nif (!pasted && !file_id) {\n  throw new Error(`Form response at ${timestamp || 'unknown time'} has neither intake text nor an uploaded file. Nothing to process.`);\n}\n\n// Stable id per form response so re-polling the same row updates the sheet row instead of duplicating it.\nconst intake_id = `gform-${timestamp.replace(/\\D/g, '') || Date.now()}`;\nconst parsed = new Date(timestamp);\nconst received_at = Number.isNaN(parsed.getTime()) ? timestamp : parsed.toISOString();\n\nreturn { json: { intake_id, channel, received_at, raw_text: pasted, submitted_by, file_id } };\n"
+      },
+      "id": "26131f70-b871-44b4-ae5a-0545b0e30434",
+      "name": "Normalize Form Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7ad8ba2a-9951-48ca-ab4c-77343ccdc479",
+              "leftValue": "={{ $json.file_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "977b5f94-ebf7-46f2-bc79-b73e38a04ed8",
+      "name": "Form has file?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        180,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.file_id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "id": "b70e40f1-da66-4cad-9887-4c5d182555df",
+      "name": "Download Uploaded File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        400,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "data",
+        "destinationKey": "data",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "id": "a5a3a8e8-1be1-4b9a-8289-80ce7e5a2f83",
+      "name": "Read Downloaded File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        620,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Attach File Text\" — Code node, mode: Run Once for Each Item\n// After \"Read Downloaded File\" put the uploaded file's contents in $json.data, merge it into raw_text.\n// Pasted text wins when both were provided; the file is the fallback. Drops the transport fields.\n\n// Belt and braces: if the Drive/Extract nodes dropped the JSON (Extract From File does so unless\n// \"Keep Source\" is explicitly set), recover the intake fields from the node that built them.\nlet origin = {};\ntry { origin = $('Normalize Form Response').item.json || {}; } catch (e) { origin = {}; }\nconst j = { ...origin, ...$json };\nconst pasted = String(j.raw_text ?? '').trim();\nconst fromFile = String(j.data ?? '').trim();\nconst raw_text = pasted || fromFile;\n\nif (!raw_text) {\n  throw new Error(`Uploaded file for ${j.intake_id} is empty or could not be read as text.`);\n}\n\nreturn {\n  json: {\n    intake_id: j.intake_id,\n    channel: j.channel,\n    received_at: j.received_at,\n    raw_text,\n    submitted_by: j.submitted_by,\n  },\n};\n"
+      },
+      "id": "b4506b8c-1769-4e89-bf45-5dfe2c93ab6d",
+      "name": "Attach File Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        -280
+      ]
+    }
+  ],
+  "connections": {
+    "Google Form Responses": {
+      "main": [
+        [
+          {
+            "node": "Normalize Form Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Form Response": {
+      "main": [
+        [
+          {
+            "node": "Form has file?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form has file?": {
+      "main": [
+        [
+          {
+            "node": "Download Uploaded File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Download Uploaded File": {
+      "main": [
+        [
+          {
+            "node": "Read Downloaded File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Downloaded File": {
+      "main": [
+        [
+          {
+            "node": "Attach File Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach File Text": {
+      "main": [
+        []
+      ]
+    }
+  }
+}

@@ -1,0 +1,950 @@
+{
+  "id": "intake-triage-v1",
+  "name": "AI Intake Triage",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "id": "2f46bfa9-dbf8-43c8-babe-36a0418fd6bc",
+      "name": "Google Form Responses",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Normalize Form Response\" — Code node, mode: Run Once for Each Item\n// One row of the Google Form's response sheet → { intake_id, channel, received_at, raw_text, submitted_by, file_id }.\n// Column names are the Form's question titles. They are matched loosely (case-insensitive, and the timestamp\n// column may be \"Timestamp\" or \"Marca temporal\" depending on the account's language), so a renamed question\n// does not silently break the intake.\n\nconst row = $json;\nconst keys = Object.keys(row);\nconst find = (re) => keys.find((k) => re.test(k));\n\nconst tsKey = find(/timestamp|marca temporal|fecha/i) || keys[0];\nconst channelKey = find(/^channel$|canal/i);\nconst textKey = find(/intake text|texto/i);\nconst nameKey = find(/your name|nombre/i);\nconst fileKey = find(/intake file|archivo|file/i);\n\nconst timestamp = String(row[tsKey] ?? '').trim();\nconst channel = String((channelKey && row[channelKey]) || 'other').trim();\nconst pasted = String((textKey && row[textKey]) || '').trim();\nconst submitted_by = String((nameKey && row[nameKey]) || '').trim() || 'not provided';\n\n// A file-upload answer is one or more Google Drive links: https://drive.google.com/open?id=<FILE_ID>\nconst fileAnswer = String((fileKey && row[fileKey]) || '');\nconst fileMatch = fileAnswer.includes('drive.google.com') ? fileAnswer.match(/[-\\w]{25,}/) : null;\nconst file_id = fileMatch ? fileMatch[0] : '';\n\nif (!pasted && !file_id) {\n  throw new Error(`Form response at ${timestamp || 'unknown time'} has neither intake text nor an uploaded file. Nothing to process.`);\n}\n\n// Stable id per form response so re-polling the same row updates the sheet row instead of duplicating it.\nconst intake_id = `gform-${timestamp.replace(/\\D/g, '') || Date.now()}`;\nconst parsed = new Date(timestamp);\nconst received_at = Number.isNaN(parsed.getTime()) ? timestamp : parsed.toISOString();\n\nreturn { json: { intake_id, channel, received_at, raw_text: pasted, submitted_by, file_id } };\n"
+      },
+      "id": "26131f70-b871-44b4-ae5a-0545b0e30434",
+      "name": "Normalize Form Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7ad8ba2a-9951-48ca-ab4c-77343ccdc479",
+              "leftValue": "={{ $json.file_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "977b5f94-ebf7-46f2-bc79-b73e38a04ed8",
+      "name": "Form has file?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        180,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.file_id }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "id": "b70e40f1-da66-4cad-9887-4c5d182555df",
+      "name": "Download Uploaded File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        400,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "data",
+        "destinationKey": "data",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "id": "a5a3a8e8-1be1-4b9a-8289-80ce7e5a2f83",
+      "name": "Read Downloaded File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        620,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Attach File Text\" — Code node, mode: Run Once for Each Item\n// After \"Read Downloaded File\" put the uploaded file's contents in $json.data, merge it into raw_text.\n// Pasted text wins when both were provided; the file is the fallback. Drops the transport fields.\n\n// Belt and braces: if the Drive/Extract nodes dropped the JSON (Extract From File does so unless\n// \"Keep Source\" is explicitly set), recover the intake fields from the node that built them.\nlet origin = {};\ntry { origin = $('Normalize Form Response').item.json || {}; } catch (e) { origin = {}; }\nconst j = { ...origin, ...$json };\nconst pasted = String(j.raw_text ?? '').trim();\nconst fromFile = String(j.data ?? '').trim();\nconst raw_text = pasted || fromFile;\n\nif (!raw_text) {\n  throw new Error(`Uploaded file for ${j.intake_id} is empty or could not be read as text.`);\n}\n\nreturn {\n  json: {\n    intake_id: j.intake_id,\n    channel: j.channel,\n    received_at: j.received_at,\n    raw_text,\n    submitted_by: j.submitted_by,\n  },\n};\n"
+      },
+      "id": "b4506b8c-1769-4e89-bf45-5dfe2c93ab6d",
+      "name": "Attach File Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "New intake",
+        "formDescription": "Paste the voicemail transcript, web-form submission or referral email — or upload it as a file. The AI extracts the facts with source quotes, writes a five-sentence summary and adds a row to the Intake Review Queue.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Channel",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "voicemail"
+                  },
+                  {
+                    "option": "web_form"
+                  },
+                  {
+                    "option": "referral_email"
+                  },
+                  {
+                    "option": "other"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Intake text",
+              "fieldType": "textarea",
+              "placeholder": "Paste the intake here (leave empty if you upload a file)"
+            },
+            {
+              "fieldLabel": "Intake file",
+              "fieldType": "file",
+              "acceptFileTypes": ".txt,.json,.eml,.md",
+              "multipleFiles": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6b3fcc96-2481-426d-9505-67f9b96367ce",
+      "name": "Intake Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -260,
+        120
+      ],
+      "webhookId": "0013e3ee-0215-419c-b7d6-04e1edc5bfb6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2534dd6e-ca88-497a-bcb9-212854c55a4f",
+              "leftValue": "={{ Boolean($binary && $binary.Intake_file) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7a7cfb4f-8538-41f9-adc9-9ab6682d1ed6",
+      "name": "File uploaded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -40,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "Intake_file",
+        "destinationKey": "data",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "id": "86e0b21a-c91c-41eb-b703-121eb0de4c4f",
+      "name": "Read Uploaded File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        180,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Normalize Form Intake\" — Code node, mode: Run Once for Each Item\n// Turns a submission of the \"New intake\" form into the same shape the batch path produces:\n//   { intake_id, channel, received_at, raw_text }\n// The form offers two ways in: paste the text, or upload a file (.txt/.json/.eml/.md). If a file was\n// uploaded, \"Read Uploaded File\" has already put its contents in $json.data. Pasted text wins if both exist.\n\n// If the file was read by \"Read Uploaded File\", that node may have dropped the form fields; recover them.\nlet origin = {};\ntry { origin = $('Intake Form').item.json || {}; } catch (e) { origin = {}; }\nconst j = { ...origin, ...$json };\nconst pasted = String(j['Intake text'] ?? '').trim();\nconst fromFile = String(j.data ?? '').trim();\nconst raw_text = pasted || fromFile;\n\nif (!raw_text) {\n  throw new Error('The form was submitted with neither pasted text nor a file. Nothing to process.');\n}\n\nconst now = new Date();\nconst stamp = now.toISOString().replace(/[-:]/g, '').replace(/\\..+$/, ''); // e.g. 20260915T170521\n\nreturn {\n  json: {\n    intake_id: `form-${stamp}`,\n    channel: String(j['Channel'] ?? 'other'),\n    received_at: now.toISOString(),\n    raw_text,\n    submitted_by: 'n8n form',\n  },\n};\n"
+      },
+      "id": "3a1c2665-de19-4df7-956f-3e1000b89d78",
+      "name": "Normalize Form Intake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ee08b00b-246b-4caa-aca7-ff99a50b18f5",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node: \"Load Sample Intakes\" — Code node, mode: Run Once for All Items\n// Emits one item per synthetic intake. The samples below are inlined from ../samples/ by scripts/build-workflow.js.\n// To run a single intake (e.g. for the Loom failure demo) set ONLY = 'intake-3'.\n\nconst ONLY = null; // null = all three | 'intake-1' | 'intake-2' | 'intake-3'\n\nconst SAMPLES = [\n  {\n    \"intake_id\": \"intake-1\",\n    \"channel\": \"voicemail\",\n    \"received_at\": \"2026-04-27T08:42:00-05:00\",\n    \"raw_text\": \"[Voicemail transcript — SYNTHETIC TEST DATA, no real persons or facilities]\\nReceived: Mon, 27 Apr 2026 08:42 · Main office line · Duration 2:11 · Auto-transcribed\\n\\nHi, um, yes, hello, this is Denise, Denise Okafor-Reyes, I'm calling about my mom. I got your number from my neighbor, she said you people handle, you know, nursing home stuff. So my mom is at Maplewood, the Maplewood Senior Living place, the one over on Elm Street, and she fell. Well — I should back up. She's been there since March. Her name is Gloria, Gloria Okafor, she's eighty-one. So a couple of weeks ago, it was right after Easter — no wait, it was right after my cousin's wedding, which was the weekend after Easter — anyway, she fell, and nobody called me for like a whole day. They said she was \\\"found on the floor\\\" in the morning. She broke her hip, the doctor at Mercy General said it's a hip fracture and she needed surgery, she had the surgery. But here's the thing, the aide told me, off the record, that the bed alarm wasn't even on. She's still at Maplewood right now, they sent her back after the hospital and I'm scared it's gonna happen again. Um, my number is 555-0142 — no, sorry, that's my old one, it's 555-0198, area code 312. 312-555-0198. Please call me back, I work nights so afternoons are best. Oh and I'm her daughter, I have power of attorney, I forgot to say that. Okay. Thank you. Bye.\",\n    \"submitted_by\": \"batch (sample data)\"\n  },\n  {\n    \"intake_id\": \"intake-2\",\n    \"channel\": \"web_form\",\n    \"received_at\": \"2026-04-28T14:03:00-05:00\",\n    \"raw_text\": \"[Web form submission — Free Case Evaluation — website form — SYNTHETIC TEST DATA]\\nSubmitted: 2026-04-28T14:03:00-05:00\\nfull name: Marcus T. Bellweather\\nemail: m.bellweather.test@example.com\\nphone: (blank)\\nwho is the injured person: Myself\\ntype of injury: Bedsores / pressure ulcers\\nfacility or provider: (blank)\\ndate of incident: (blank)\\nbrief description: Developed stage 3 sores during a 6 week rehab stay at Riverbend Rehabilitation after my knee surgery. Was told it was normal. Discharged now, still healing at home.\\nhow did you hear about us: Google search\\npreferred contact method: Email\",\n    \"submitted_by\": \"batch (sample data)\"\n  },\n  {\n    \"intake_id\": \"intake-3\",\n    \"channel\": \"referral_email\",\n    \"received_at\": \"2026-04-29T16:47:00-05:00\",\n    \"raw_text\": \"[Email — SYNTHETIC TEST DATA, no real persons or facilities]\\nFrom: Priya Venkataraman <pvenkataraman.test@example.com>\\nTo: intake@example-lawfirm.test\\nDate: Wed, 29 Apr 2026 16:47\\nSubject: Referral — possible neglect matter, Cedar Hollow Care Center\\n\\nCounsel,\\n\\nHope you're well. I'm referring a matter that's outside our practice area. A longtime client of mine came to see me about his mother, who is a resident at Cedar Hollow Care Center. He believes she developed pressure ulcers there that went unreported for some time, and he has photos. He is understandably upset and wants to move quickly.\\n\\nI told him your firm handles these cases and that someone would reach out. He asked me not to share his details over email, so I'll let him contact you directly, or you can call my office and my assistant will connect you.\\n\\nLet me know if you need anything from me.\\n\\nBest regards,\\nPriya Venkataraman\\nVenkataraman Family Law, PLLC\\nDirect: (773) 555-0177\",\n    \"submitted_by\": \"batch (sample data)\"\n  }\n];\n\nreturn SAMPLES\n  .filter((s) => !ONLY || s.intake_id === ONLY)\n  .map((s) => ({ json: s }));\n"
+      },
+      "id": "e2524969-2cf3-46b2-a2c4-6d35cfcffea3",
+      "name": "Load Sample Intakes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9a9f1cff-5102-4ce7-8b2f-7e6575f62139",
+              "name": "intake_id",
+              "value": "={{ $json.intake_id }}",
+              "type": "string"
+            },
+            {
+              "id": "7c00fbed-ae38-4153-af55-d10ea9983f3b",
+              "name": "channel",
+              "value": "={{ $json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "f5a7c9c1-410e-4a4d-9cbb-d9e821f0c46e",
+              "name": "received_at",
+              "value": "={{ $json.received_at }}",
+              "type": "string"
+            },
+            {
+              "id": "87615696-c251-4428-8184-c5ec45eec11a",
+              "name": "raw_text",
+              "value": "={{ $json.raw_text }}",
+              "type": "string"
+            },
+            {
+              "id": "58f3ca8a-0df4-4d18-8adb-0eae22300ca0",
+              "name": "submitted_by",
+              "value": "={{ $json.submitted_by || 'not provided' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "70aa067f-c625-4b03-9c04-90af292f57b9",
+      "name": "Normalize Intake",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=INTAKE ID (copy this exact value into intake_id.value; it is never NOT FOUND): {{ $json.intake_id }}\n\nINTAKE TEXT:\n{{ $json.raw_text }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are the intake analyst for a law firm that handles nursing-home neglect and personal-injury matters. You read ONE raw intake (a voicemail transcript, a web-form submission, or a referral email) and extract facts into the JSON structure described in the format instructions.\n\nHARD RULES — these are not stylistic preferences:\n\n1. Extract only what is explicitly stated in the intake text. Never infer, assume, or fill in from general knowledge.\n2. Every extracted value must be paired with \"evidence\": a short quote copied EXACTLY, character for character, from the intake text (maximum 200 characters). Do not paraphrase, do not fix typos, do not merge two separate passages into one quote. A downstream program checks that the quote exists verbatim in the source and discards any fact whose quote does not.\n3. If the intake does not state a fact, set its value to the exact string NOT FOUND and its evidence to null. NOT FOUND is a correct and expected answer, not a failure.\n4. Do not derive facts indirectly: no names from email addresses, no facility from a street or city, no dates from relative expressions such as \"last week\" or \"right after Easter\", no phone numbers reconstructed from partial digits.\n5. If the text corrects itself (\"no, sorry, it's...\"), use the corrected information and quote the correction.\n\nFIELD DEFINITIONS\n\n- intake_id.value: copy the INTAKE ID shown on the first line of the message, exactly as written. It is a routing key supplied by the system, not a fact about the case, so it is never NOT FOUND and needs no evidence (leave evidence null).\n- potential_client_name: the injured person (the potential client). This is NOT the person writing or calling, unless they say they are the same person.\n- contact_name: the person who sent the intake or who should be called back.\n- relationship_to_client: how contact_name relates to the injured person (for example daughter, self, referring attorney).\n- contact_information.phone and contact_information.email: the contact's phone and email. If a number is corrected mid-text, use the corrected one.\n- facility_or_provider: the named nursing home, hospital, rehab center, or provider where the injury happened. A street name or a city is not a facility. A hospital that only treated the injury afterwards is not the facility where it happened.\n- date_of_incident.value: the date or time expression exactly as stated (for example \"right after Easter\"). date_of_incident.normalized_iso: an ISO date (YYYY-MM-DD) ONLY when the text states a complete absolute date including the year; otherwise NOT FOUND.\n- injury_type: the injury as described (for example hip fracture, pressure ulcers).\n- referral_source: how the intake reached the firm (for example \"neighbor\", \"Google search\", or the name and firm of a referring attorney).\n- urgency_flag.value: HIGH, MEDIUM, LOW, or NOT FOUND. HIGH = ongoing danger, the injured person is still at the facility, hospitalization, death, or a legal deadline is mentioned. MEDIUM = an injury occurred and the situation appears stable. LOW = informational or no injury described. Use NOT FOUND when the text gives no basis. Always fill urgency_flag.reason (one sentence) and urgency_flag.evidence (a verbatim quote that supports the rating).\n- In a referral, the referring person IS the contact: contact_name is the referrer, relationship_to_client is \"referring attorney\" (or similar), and contact_information holds the referrer's phone and email. The potential client's own details, if absent, are simply NOT FOUND in potential_client_name.\n\nOutput only the JSON object. No preamble, no markdown fences, no commentary."
+            }
+          ]
+        }
+      },
+      "id": "4db353c7-6edd-4f30-8de9-88f343338c07",
+      "name": "Extract Facts",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        680,
+        400
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-5"
+        },
+        "options": {
+          "maxTokensToSample": 16000
+        }
+      },
+      "id": "ea0a6848-0c1f-4a97-8ab4-43fb258c36a0",
+      "name": "Anthropic (Extract)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        620,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"intake_id\",\n    \"potential_client_name\",\n    \"contact_name\",\n    \"relationship_to_client\",\n    \"contact_information\",\n    \"facility_or_provider\",\n    \"date_of_incident\",\n    \"injury_type\",\n    \"referral_source\",\n    \"urgency_flag\"\n  ],\n  \"properties\": {\n    \"intake_id\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\",\n          \"description\": \"Copy the INTAKE ID from the first line of the message exactly. It is a routing key and is never NOT FOUND.\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        }\n      }\n    },\n    \"potential_client_name\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"evidence\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\",\n          \"description\": \"The injured person's name, or NOT FOUND\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ],\n          \"description\": \"Verbatim quote from the intake, or null\"\n        }\n      }\n    },\n    \"contact_name\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"evidence\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        }\n      }\n    },\n    \"relationship_to_client\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"evidence\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        }\n      }\n    },\n    \"contact_information\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"phone\",\n        \"email\"\n      ],\n      \"properties\": {\n        \"phone\": {\n          \"type\": \"object\",\n          \"additionalProperties\": false,\n          \"required\": [\n            \"value\",\n            \"evidence\"\n          ],\n          \"properties\": {\n            \"value\": {\n              \"type\": \"string\"\n            },\n            \"evidence\": {\n              \"type\": [\n                \"string\",\n                \"null\"\n              ]\n            }\n          }\n        },\n        \"email\": {\n          \"type\": \"object\",\n          \"additionalProperties\": false,\n          \"required\": [\n            \"value\",\n            \"evidence\"\n          ],\n          \"properties\": {\n            \"value\": {\n              \"type\": \"string\"\n            },\n            \"evidence\": {\n              \"type\": [\n                \"string\",\n                \"null\"\n              ]\n            }\n          }\n        }\n      }\n    },\n    \"facility_or_provider\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"evidence\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        }\n      }\n    },\n    \"date_of_incident\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"evidence\",\n        \"normalized_iso\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\",\n          \"description\": \"The time expression exactly as stated, or NOT FOUND\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        },\n        \"normalized_iso\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ],\n          \"description\": \"YYYY-MM-DD only if a complete absolute date with year is stated; otherwise NOT FOUND (null is also accepted and treated as NOT FOUND)\"\n        }\n      }\n    },\n    \"injury_type\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"evidence\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        }\n      }\n    },\n    \"referral_source\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"evidence\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        }\n      }\n    },\n    \"urgency_flag\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\n        \"value\",\n        \"reason\",\n        \"evidence\"\n      ],\n      \"properties\": {\n        \"value\": {\n          \"type\": \"string\",\n          \"enum\": [\n            \"HIGH\",\n            \"MEDIUM\",\n            \"LOW\",\n            \"NOT FOUND\"\n          ]\n        },\n        \"reason\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ],\n          \"description\": \"One sentence explaining the rating\"\n        },\n        \"evidence\": {\n          \"type\": [\n            \"string\",\n            \"null\"\n          ]\n        }\n      }\n    }\n  }\n}",
+        "autoFix": false
+      },
+      "id": "ddfb2805-d6a4-4086-a8d9-ba591b6c38e8",
+      "name": "Extraction Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        820,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Traceability Guard\" — Code node, mode: Run Once for Each Item\n//\n// THE RULE (Goal 03 — traceability and honesty):\n//   A fact survives only if its `evidence` quote appears VERBATIM in the source intake text.\n//   The prompt asks the model not to guess; this node guarantees it. Anything that fails the\n//   check is reverted to NOT FOUND and logged in validation_warnings. Nothing is ever \"fixed up\".\n\nconst NOT_FOUND = 'NOT FOUND';\n\n// n8n's LLM chain nodes do not preserve item pairing on successful outputs, so we cannot ask\n// \"which input produced this?\". Instead the model echoes the intake_id we put at the top of its\n// message, and we look the source intake up by that key. A mismatch stops the run loudly rather\n// than silently checking one intake's facts against another intake's text.\nconst rec = JSON.parse(JSON.stringify($json.output || {}));\nconst echoed = rec.intake_id && typeof rec.intake_id === 'object' ? rec.intake_id.value : rec.intake_id;\nconst intakeId = String(echoed ?? '').trim();\ndelete rec.intake_id;\n\nconst sources = $('Normalize Intake').all().map((i) => i.json);\nlet source = sources.find((s) => s.intake_id === intakeId);\n// Fallbacks that never guess: a single intake in this run is unambiguous; and if no item was lost upstream\n// (same count in and out of the LLM node) positions still line up. Anything else stops the run.\nif (!source && sources.length === 1) source = sources[0];\nif (!source && $('Extract Facts').all().length === sources.length) source = sources[$itemIndex];\nif (!source) {\n  throw new Error(`Traceability Guard: model output carries intake_id \"${intakeId}\" which matches no source intake, and the run is ambiguous (${sources.length} intakes)`);\n}\nconst raw = String(source.raw_text || '');\nconst MAX_EVIDENCE_CHARS = 300; // a \"quote\" longer than this is not a citation, it's a paste\n\n// Normalisation is deliberately minimal: case, quote style, dash style, whitespace.\n// It never touches letters or digits, so a paraphrase still fails.\nconst norm = (s) =>\n  String(s ?? '')\n    .toLowerCase()\n    .replace(/[“”\"‘’']/g, '')\n    .replace(/[–—]/g, '-')\n    .replace(/\\s+/g, ' ')\n    .trim();\n\nconst SOURCE = norm(raw);\nconst warnings = [];\nconst missing = [];\n\nfunction guard(path, fact) {\n  if (!fact || typeof fact !== 'object') {\n    warnings.push(`${path}: absent from model output -> set to ${NOT_FOUND}`);\n    missing.push(path);\n    return { value: NOT_FOUND, evidence: null };\n  }\n  const value = String(fact.value ?? '').trim();\n  if (!value || value.toUpperCase() === NOT_FOUND) {\n    fact.value = NOT_FOUND;\n    fact.evidence = null;\n    missing.push(path);\n    return fact;\n  }\n  const ev = norm(fact.evidence);\n  let reason = null;\n  if (!ev) reason = 'no evidence quote provided';\n  else if (ev.length > MAX_EVIDENCE_CHARS) reason = 'evidence quote too long to be a verbatim citation';\n  else if (!SOURCE.includes(ev)) reason = 'evidence quote not found verbatim in source';\n  if (reason) {\n    warnings.push(`${path}: ${reason} -> value \"${value}\" reverted to ${NOT_FOUND}`);\n    fact.value = NOT_FOUND;\n    fact.evidence = null;\n    missing.push(path);\n  }\n  return fact;\n}\n\nrec.potential_client_name = guard('potential_client_name', rec.potential_client_name);\nrec.contact_name = guard('contact_name', rec.contact_name);\nrec.relationship_to_client = guard('relationship_to_client', rec.relationship_to_client);\nrec.contact_information = rec.contact_information || {};\nrec.contact_information.phone = guard('contact_information.phone', rec.contact_information.phone);\nrec.contact_information.email = guard('contact_information.email', rec.contact_information.email);\nrec.facility_or_provider = guard('facility_or_provider', rec.facility_or_provider);\nrec.date_of_incident = guard('date_of_incident', rec.date_of_incident);\nrec.injury_type = guard('injury_type', rec.injury_type);\nrec.referral_source = guard('referral_source', rec.referral_source);\nrec.urgency_flag = guard('urgency_flag', rec.urgency_flag);\n\n// Urgency must be one of the allowed labels — anything else is not a rating.\nconst URGENCY = ['HIGH', 'MEDIUM', 'LOW', NOT_FOUND];\nif (!URGENCY.includes(rec.urgency_flag.value)) {\n  warnings.push(`urgency_flag: \"${rec.urgency_flag.value}\" is not HIGH/MEDIUM/LOW -> reverted to ${NOT_FOUND}`);\n  rec.urgency_flag.value = NOT_FOUND;\n}\nrec.urgency_flag.reason = rec.urgency_flag.value === NOT_FOUND ? '' : String(rec.urgency_flag.reason ?? '');\n\n// Date rule: a normalised ISO date is allowed only when the quoted evidence itself contains a\n// complete absolute date with a year. \"Right after Easter\" stays as words; the human decides.\nconst dateEvidence = norm(rec.date_of_incident.evidence);\nconst hasAbsoluteDate =\n  /\\b(19|20)\\d{2}\\b/.test(dateEvidence) || /\\b\\d{1,2}[\\/.-]\\d{1,2}[\\/.-]\\d{4}\\b/.test(dateEvidence);\nif (rec.date_of_incident.value === NOT_FOUND || !hasAbsoluteDate) {\n  if (rec.date_of_incident.normalized_iso && rec.date_of_incident.normalized_iso !== NOT_FOUND) {\n    warnings.push(\n      `date_of_incident.normalized_iso: \"${rec.date_of_incident.normalized_iso}\" was inferred from a relative expression -> reverted to ${NOT_FOUND}`,\n    );\n  }\n  rec.date_of_incident.normalized_iso = NOT_FOUND;\n}\n\n// Readiness: an attorney can act only if we know who, how to reach them, where, and what injury.\nconst has = (f) => f && f.value !== NOT_FOUND;\nconst coreGaps = [];\nif (!has(rec.potential_client_name)) coreGaps.push('potential_client_name');\nif (!has(rec.contact_information.phone) && !has(rec.contact_information.email)) coreGaps.push('contact_information (phone or email)');\nif (!has(rec.injury_type)) coreGaps.push('injury_type');\nif (!has(rec.facility_or_provider)) coreGaps.push('facility_or_provider');\nconst review_required = coreGaps.length > 0 || warnings.length > 0;\n\n// Who can fill the gaps: the contact who wrote in, else the referral source.\nconst followUp = [\n  has(rec.contact_name) ? rec.contact_name.value : null,\n  has(rec.relationship_to_client) ? `(${rec.relationship_to_client.value})` : null,\n  has(rec.contact_information.phone) ? rec.contact_information.phone.value : null,\n  has(rec.contact_information.email) ? rec.contact_information.email.value : null,\n]\n  .filter(Boolean)\n  .join(' ');\nconst follow_up_contact = followUp || (has(rec.referral_source) ? `referral source: ${rec.referral_source.value}` : NOT_FOUND);\n\n// Flat rendering of the VALIDATED record — this is the only thing the summary writer sees.\nconst line = (label, f) => `${label}: ${f.value}` + (has(f) && f.evidence ? `  [source: \"${f.evidence}\"]` : '');\nconst record_text = [\n  `Intake ${source.intake_id} via ${source.channel}, received ${source.received_at}`,\n  line('Potential client (injured person)', rec.potential_client_name),\n  line('Contact person', rec.contact_name),\n  line('Relationship to client', rec.relationship_to_client),\n  line('Contact phone', rec.contact_information.phone),\n  line('Contact email', rec.contact_information.email),\n  line('Facility or provider', rec.facility_or_provider),\n  line('Date of incident (as stated)', rec.date_of_incident),\n  `Date of incident (normalised): ${rec.date_of_incident.normalized_iso}`,\n  line('Injury type', rec.injury_type),\n  line('Referral source', rec.referral_source),\n  `Urgency: ${rec.urgency_flag.value}` + (rec.urgency_flag.reason ? ` - ${rec.urgency_flag.reason}` : ''),\n  `Missing fields: ${missing.length ? missing.join(', ') : 'none'}`,\n  `Who can supply missing information: ${follow_up_contact}`,\n].join('\\n');\n\nreturn {\n  json: {\n    intake_id: source.intake_id,\n    channel: source.channel,\n    received_at: source.received_at,\n    submitted_by: source.submitted_by || 'not provided',\n    raw_text: raw,\n    record: rec,\n    record_text,\n    missing_fields: missing,\n    missing_count: missing.length,\n    core_gaps: coreGaps,\n    validation_warnings: warnings,\n    review_required,\n    follow_up_contact,\n    processed_at: new Date().toISOString(),\n    // Read the real model ID from the Anthropic node so the sheet never lies about which model ran.\n    model: (() => { try { return $('Anthropic (Extract)').params.model.value; } catch (e) { return 'unknown'; } })(),\n  },\n};\n"
+      },
+      "id": "c2c3be7e-b033-431b-8660-aaf3dd27ae76",
+      "name": "Traceability Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Intake ID: {{ $json.intake_id }}\n\n{{ $json.record_text }}\n\nMissing fields: {{ $json.missing_fields.length ? $json.missing_fields.join(', ') : 'none' }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You write intake summaries for a busy attorney. You receive a validated intake record. Every fact in it has already been verified against the original intake text, and anything marked NOT FOUND was genuinely not stated in the intake.\n\nWrite EXACTLY five sentences of plain English that an attorney can read in twenty seconds and know whether to act.\nSentence 1: who the potential client is and what happened to them.\nSentence 2: where it happened and when (say \"the date was not provided\" if unknown).\nSentence 3: the injury and how serious it appears from the record.\nSentence 4: what information is missing and who can supply it.\nSentence 5: the recommended next step and the urgency level.\n\nRULES\n- Use only facts present in the record. Never add details, names, dates, places, or numbers that are not in it.\n- State missing items plainly as \"not provided\". Do not speculate about what they might be.\n- No legal jargon, no bullet points, no headings, no quotation of the source.\n- Do not use abbreviations that end with a period (write Doctor, not Dr.), so that sentence boundaries stay unambiguous.\n- Return the five sentences as one paragraph in the \"summary\" field, and copy the Intake ID from the first line of the message into \"intake_id\" exactly as written. Follow the format instructions; nothing else."
+            }
+          ]
+        }
+      },
+      "id": "f8ccdc77-1359-4284-97d7-a1002a296700",
+      "name": "Attorney Summary",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1240,
+        400
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-5"
+        },
+        "options": {
+          "maxTokensToSample": 16000
+        }
+      },
+      "id": "aebf744d-96f1-441a-9dd8-85a366144841",
+      "name": "Anthropic (Summary)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1180,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"intake_id\",\n    \"summary\"\n  ],\n  \"properties\": {\n    \"intake_id\": {\n      \"type\": \"string\",\n      \"description\": \"Copy the Intake ID given at the top of the message, exactly\"\n    },\n    \"summary\": {\n      \"type\": \"string\",\n      \"description\": \"Exactly five plain-English sentences in one paragraph\"\n    }\n  }\n}",
+        "autoFix": false
+      },
+      "id": "c163fbcd-f610-4adf-9274-a7dcf2e3f17c",
+      "name": "Summary Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1380,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Validate Summary\" — Code node, mode: Run Once for Each Item\n// Checks the attorney summary (Goal 02) and builds the flat row that goes to the review sheet.\n//   1. Exactly five sentences.\n//   2. No leaked specifics: any phone-like number, email, or year in the summary must exist in the source text.\n// A failing summary is never discarded — it is flagged (summary_valid=false) and the intake is routed to follow-up.\n\nconst NOT_FOUND = 'NOT FOUND';\n\n// Google Sheets caps a cell at 50,000 characters. Keep the original text readable in the row, but never let an\n// oversized intake break the write (that would silence the very branch meant to report problems).\n// Dates for humans: \"27 Apr 2026 08:42\" in the workflow's timezone (GENERIC_TIMEZONE), not ISO-8601.\nconst TZ = (() => { try { return $env.GENERIC_TIMEZONE || 'UTC'; } catch (e) { return 'UTC'; } })();\nconst fmtDate = (iso) => {\n  const d = new Date(iso);\n  if (Number.isNaN(d.getTime())) return String(iso ?? '');\n  const p = Object.fromEntries(\n    new Intl.DateTimeFormat('en-US', { timeZone: TZ, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })\n      .formatToParts(d).map((x) => [x.type, x.value]),\n  );\n  return `${p.day} ${p.month} ${p.year} ${p.hour === '24' ? '00' : p.hour}:${p.minute}`;\n};\n\nconst SHEET_CELL_MAX = 45000;\nconst fitCell = (s) => {\n  const t = String(s ?? '');\n  return t.length <= SHEET_CELL_MAX ? t : t.slice(0, SHEET_CELL_MAX) + `\\n\\n[... truncated for the sheet: ${t.length.toLocaleString()} characters in total ...]`;\n};\n\n// Same key-based lookup as the guard: the summary chain echoes intake_id, we find the guarded record by it.\nconst out = $json.output || {};\nconst echoed = out.intake_id && typeof out.intake_id === 'object' ? out.intake_id.value : out.intake_id;\nconst intakeId = String(echoed ?? '').trim();\nconst guarded = $('Traceability Guard').all().map((i) => i.json);\nlet g = guarded.find((s) => s.intake_id === intakeId);\nif (!g && guarded.length === 1) g = guarded[0];\nif (!g && $('Attorney Summary').all().length === guarded.length) g = guarded[$itemIndex];\nif (!g) {\n  throw new Error(`Validate Summary: summary carries intake_id \"${intakeId}\" which matches no guarded record, and the run is ambiguous (${guarded.length} records)`);\n}\nconst r = g.record;\n\nconst summary = String(out.summary ?? '').replace(/\\s+/g, ' ').trim();\n\n// Sentence count. Periods that are not sentence ends are masked first: single-letter initials\n// (\"Marcus T. Bellweather\") and common titles/abbreviations the model may legitimately keep.\nconst masked = summary\n  .replace(/\\b([A-Z])\\.(?=\\s)/g, '$1․')\n  .replace(/\\b(Mr|Mrs|Ms|Dr|Jr|Sr|St|No|vs|etc|Inc|Ltd|PLLC|LLC)\\.(?=\\s)/g, '$1․');\nconst sentences = masked.match(/[^.!?]+[.!?]+(?=\\s|$)/g) || [];\nconst problems = [];\n\nif (sentences.length !== 5) problems.push(`summary has ${sentences.length} sentences, expected 5`);\n\nconst sourceDigits = g.raw_text.replace(/\\D/g, '');\nconst sourceLower = g.raw_text.toLowerCase();\nfor (const token of summary.match(/[\\d()+\\-.\\s]{7,}/g) || []) {\n  const digits = token.replace(/\\D/g, '');\n  if (digits.length >= 7 && !sourceDigits.includes(digits)) problems.push(`summary contains a number not in the source: \"${token.trim()}\"`);\n}\nfor (const raw of summary.match(/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/g) || []) {\n  const email = raw.replace(/[.,;:]+$/, ''); // drop sentence punctuation glued to the address\n  if (!sourceLower.includes(email.toLowerCase())) problems.push(`summary contains an email not in the source: ${email}`);\n}\nfor (const year of summary.match(/\\b(19|20)\\d{2}\\b/g) || []) {\n  if (!g.raw_text.includes(year)) problems.push(`summary contains a year not in the source: ${year}`);\n}\n\nconst summary_valid = problems.length === 0;\nconst review_required = g.review_required || !summary_valid;\nconst status = review_required ? 'NEEDS FOLLOW-UP' : 'READY FOR ATTORNEY REVIEW';\nconst warnings = [...g.validation_warnings, ...problems];\n\n// One flat row = one line in the \"Intake Review Queue\" sheet, ordered the way a paralegal reads it:\n// decide (status, urgency) → who/what (client, summary, gaps, contact) → context → technical trail at the end.\n// The Sheets node ignores fields that have no column, so follow_up_contact stays available to the alert e-mail\n// without cluttering the sheet.\nconst contact = r.contact_name.value === NOT_FOUND ? NOT_FOUND\n  : r.relationship_to_client.value === NOT_FOUND ? r.contact_name.value\n  : `${r.contact_name.value} (${r.relationship_to_client.value})`;\n\nreturn {\n  json: {\n    status,\n    urgency: r.urgency_flag.value,\n    urgency_reason: r.urgency_flag.reason || '',\n    client_name: r.potential_client_name.value,\n    summary,\n    missing_fields: g.missing_fields.length ? g.missing_fields.join('; ') : 'none',\n    contact_name: contact,\n    contact_phone: r.contact_information.phone.value,\n    contact_email: r.contact_information.email.value,\n    facility: r.facility_or_provider.value,\n    injury_type: r.injury_type.value,\n    date_of_incident: r.date_of_incident.value,\n    referral_source: r.referral_source.value,\n    channel: g.channel,\n    submitted_by: g.submitted_by || 'not provided',\n    received_at: fmtDate(g.received_at),\n    intake_id: g.intake_id,\n    warnings: warnings.length ? warnings.join(' | ') : 'none',\n    source_text: fitCell(g.raw_text),\n    record_json: JSON.stringify({ _model: g.model, _summary_sentence_count: sentences.length, ...r }),\n    processed_at: fmtDate(g.processed_at),\n    // not a sheet column — used by the alert e-mail\n    follow_up_contact: g.follow_up_contact,\n  },\n};\n"
+      },
+      "id": "9aee3328-ed96-4e6f-88ee-00d8e5a75141",
+      "name": "Validate Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "intake_id"
+          ],
+          "schema": []
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "id": "636a4b73-72fb-4ea9-84db-d150da00311e",
+      "name": "Review Queue (upsert)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1800,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "30fec05e-cbd0-4f1a-af54-34d17df998e5",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "NEEDS FOLLOW-UP",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "0b740438-00d9-43ea-af1c-3a22a2278ca0",
+              "leftValue": "={{ $json.urgency }}",
+              "rightValue": "HIGH",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "e97cfc29-113b-42e6-a7b3-0888b8fec00e",
+      "name": "Alert a human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2060,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.ALERT_EMAIL }}",
+        "subject": "=[Intake triage] {{ $json.status === 'NEEDS FOLLOW-UP' ? 'NEEDS FOLLOW-UP' : 'HIGH URGENCY' }} — {{ $json.intake_id }} ({{ $json.channel }}) — urgency {{ $json.urgency }}",
+        "emailType": "text",
+        "message": "={{ $json.status === 'NEEDS FOLLOW-UP' ? 'An intake could not be completed automatically and needs a human.' : 'An intake was rated HIGH urgency and is ready for attorney review. Please look at it today.' }}\n\nIntake: {{ $json.intake_id }} via {{ $json.channel }}, received {{ $json.received_at }}\nUrgency: {{ $json.urgency }} — {{ $json.urgency_reason }}\n\nMissing: {{ $json.missing_fields }}\nWho can supply it: {{ $json.follow_up_contact }}\nChecks: {{ $json.warnings }}\n\nSummary:\n{{ $json.summary }}\n\nThe full row (with source quotes and the original text) is in the \"Intake Review Queue\" sheet.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "54beafcf-6fcf-47bb-9c4a-4689e85b792a",
+      "name": "Alert: needs attention",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2320,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Build Error Row\" — Code node, mode: Run Once for Each Item\n// Reached only through the error output of an LLM chain (API failure, invalid JSON, timeout).\n// Nothing is silently dropped: the intake still gets a row, with status PIPELINE ERROR and the\n// original text intact, and the alert branch tells a human to handle it manually.\n\n// Error outputs DO carry item pairing (unlike successful LLM outputs), but only one hop back.\n// A summary failure pairs to Traceability Guard; an extraction failure pairs to Normalize Intake.\n// Both carry intake_id / channel / received_at / raw_text.\nlet src;\ntry { src = $('Traceability Guard').item.json; } catch (e) { src = null; }\nif (!src || !src.raw_text) src = $('Normalize Intake').item.json;\nconst NOT_FOUND = 'NOT FOUND';\n\n// Google Sheets caps a cell at 50,000 characters. Keep the original text readable in the row, but never let an\n// oversized intake break the write (that would silence the very branch meant to report problems).\n// Dates for humans: \"27 Apr 2026 08:42\" in the workflow's timezone (GENERIC_TIMEZONE), not ISO-8601.\nconst TZ = (() => { try { return $env.GENERIC_TIMEZONE || 'UTC'; } catch (e) { return 'UTC'; } })();\nconst fmtDate = (iso) => {\n  const d = new Date(iso);\n  if (Number.isNaN(d.getTime())) return String(iso ?? '');\n  const p = Object.fromEntries(\n    new Intl.DateTimeFormat('en-US', { timeZone: TZ, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })\n      .formatToParts(d).map((x) => [x.type, x.value]),\n  );\n  return `${p.day} ${p.month} ${p.year} ${p.hour === '24' ? '00' : p.hour}:${p.minute}`;\n};\n\nconst SHEET_CELL_MAX = 45000;\nconst fitCell = (s) => {\n  const t = String(s ?? '');\n  return t.length <= SHEET_CELL_MAX ? t : t.slice(0, SHEET_CELL_MAX) + `\\n\\n[... truncated for the sheet: ${t.length.toLocaleString()} characters in total ...]`;\n};\nconst err = $json.error;\nconst message = typeof err === 'string' ? err : err && err.message ? err.message : JSON.stringify(err ?? 'unknown error');\n\nreturn {\n  json: {\n    status: 'PIPELINE ERROR',\n    urgency: NOT_FOUND,\n    urgency_reason: '',\n    client_name: NOT_FOUND,\n    summary: 'Not generated - the AI step failed. Read the source text and process this intake manually.',\n    missing_fields: 'all (not processed)',\n    contact_name: NOT_FOUND,\n    contact_phone: NOT_FOUND,\n    contact_email: NOT_FOUND,\n    facility: NOT_FOUND,\n    injury_type: NOT_FOUND,\n    date_of_incident: NOT_FOUND,\n    referral_source: NOT_FOUND,\n    channel: src.channel,\n    submitted_by: src.submitted_by || 'not provided',\n    received_at: fmtDate(src.received_at),\n    intake_id: src.intake_id,\n    warnings: `pipeline error: ${message}`,\n    source_text: fitCell(src.raw_text),\n    record_json: JSON.stringify({ _model: (() => { try { return $('Anthropic (Extract)').params.model.value; } catch (e) { return 'unknown'; } })() }),\n    processed_at: fmtDate(new Date().toISOString()),\n    follow_up_contact: NOT_FOUND,\n  },\n};\n"
+      },
+      "id": "4db63d7a-9282-49b3-af43-8a5b77441051",
+      "name": "Build Error Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        860
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "intake_id"
+          ],
+          "schema": []
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "id": "43c697f6-4320-464c-9da9-d36011208c28",
+      "name": "Pipeline Error (upsert)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1800,
+        860
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.ALERT_EMAIL }}",
+        "subject": "=[Intake triage] PIPELINE ERROR — {{ $json.intake_id }} ({{ $json.channel }})",
+        "emailType": "text",
+        "message": "=The AI step failed for this intake. Nothing was extracted; process it manually.\n\nIntake: {{ $json.intake_id }} via {{ $json.channel }}, received {{ $json.received_at }}\nError: {{ $json.warnings }}\n\nThe original text is preserved in the \"Intake Review Queue\" sheet (status PIPELINE ERROR). Please notify the workflow owner.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d6198c15-e499-4025-b54a-c80364bde0ca",
+      "name": "Alert: pipeline error",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2060,
+        860
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Google Form Responses": {
+      "main": [
+        [
+          {
+            "node": "Normalize Form Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Form Response": {
+      "main": [
+        [
+          {
+            "node": "Form has file?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form has file?": {
+      "main": [
+        [
+          {
+            "node": "Download Uploaded File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Uploaded File": {
+      "main": [
+        [
+          {
+            "node": "Read Downloaded File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Downloaded File": {
+      "main": [
+        [
+          {
+            "node": "Attach File Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach File Text": {
+      "main": [
+        [
+          {
+            "node": "Normalize Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake Form": {
+      "main": [
+        [
+          {
+            "node": "File uploaded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File uploaded?": {
+      "main": [
+        [
+          {
+            "node": "Read Uploaded File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Form Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Uploaded File": {
+      "main": [
+        [
+          {
+            "node": "Normalize Form Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Form Intake": {
+      "main": [
+        [
+          {
+            "node": "Normalize Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Sample Intakes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Sample Intakes": {
+      "main": [
+        [
+          {
+            "node": "Normalize Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Intake": {
+      "main": [
+        [
+          {
+            "node": "Extract Facts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Facts": {
+      "main": [
+        [
+          {
+            "node": "Traceability Guard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Traceability Guard": {
+      "main": [
+        [
+          {
+            "node": "Attorney Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attorney Summary": {
+      "main": [
+        [
+          {
+            "node": "Validate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Summary": {
+      "main": [
+        [
+          {
+            "node": "Review Queue (upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Queue (upsert)": {
+      "main": [
+        [
+          {
+            "node": "Alert a human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert a human?": {
+      "main": [
+        [
+          {
+            "node": "Alert: needs attention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Row": {
+      "main": [
+        [
+          {
+            "node": "Pipeline Error (upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline Error (upsert)": {
+      "main": [
+        [
+          {
+            "node": "Alert: pipeline error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic (Extract)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract Facts",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraction Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Extract Facts",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic (Summary)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Attorney Summary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Attorney Summary",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

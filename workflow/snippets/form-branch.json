@@ -1,0 +1,169 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "New intake",
+        "formDescription": "Paste the voicemail transcript, web-form submission or referral email — or upload it as a file. The AI extracts the facts with source quotes, writes a five-sentence summary and adds a row to the Intake Review Queue.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Channel",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "voicemail"
+                  },
+                  {
+                    "option": "web_form"
+                  },
+                  {
+                    "option": "referral_email"
+                  },
+                  {
+                    "option": "other"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Intake text",
+              "fieldType": "textarea",
+              "placeholder": "Paste the intake here (leave empty if you upload a file)"
+            },
+            {
+              "fieldLabel": "Intake file",
+              "fieldType": "file",
+              "acceptFileTypes": ".txt,.json,.eml,.md",
+              "multipleFiles": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6b3fcc96-2481-426d-9505-67f9b96367ce",
+      "name": "Intake Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -260,
+        120
+      ],
+      "webhookId": "0013e3ee-0215-419c-b7d6-04e1edc5bfb6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2534dd6e-ca88-497a-bcb9-212854c55a4f",
+              "leftValue": "={{ Boolean($binary && $binary.Intake_file) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7a7cfb4f-8538-41f9-adc9-9ab6682d1ed6",
+      "name": "File uploaded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -40,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "Intake_file",
+        "destinationKey": "data",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "id": "86e0b21a-c91c-41eb-b703-121eb0de4c4f",
+      "name": "Read Uploaded File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        180,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Node: \"Normalize Form Intake\" — Code node, mode: Run Once for Each Item\n// Turns a submission of the \"New intake\" form into the same shape the batch path produces:\n//   { intake_id, channel, received_at, raw_text }\n// The form offers two ways in: paste the text, or upload a file (.txt/.json/.eml/.md). If a file was\n// uploaded, \"Read Uploaded File\" has already put its contents in $json.data. Pasted text wins if both exist.\n\n// If the file was read by \"Read Uploaded File\", that node may have dropped the form fields; recover them.\nlet origin = {};\ntry { origin = $('Intake Form').item.json || {}; } catch (e) { origin = {}; }\nconst j = { ...origin, ...$json };\nconst pasted = String(j['Intake text'] ?? '').trim();\nconst fromFile = String(j.data ?? '').trim();\nconst raw_text = pasted || fromFile;\n\nif (!raw_text) {\n  throw new Error('The form was submitted with neither pasted text nor a file. Nothing to process.');\n}\n\nconst now = new Date();\nconst stamp = now.toISOString().replace(/[-:]/g, '').replace(/\\..+$/, ''); // e.g. 20260915T170521\n\nreturn {\n  json: {\n    intake_id: `form-${stamp}`,\n    channel: String(j['Channel'] ?? 'other'),\n    received_at: now.toISOString(),\n    raw_text,\n    submitted_by: 'n8n form',\n  },\n};\n"
+      },
+      "id": "3a1c2665-de19-4df7-956f-3e1000b89d78",
+      "name": "Normalize Form Intake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Intake Form": {
+      "main": [
+        [
+          {
+            "node": "File uploaded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File uploaded?": {
+      "main": [
+        [
+          {
+            "node": "Read Uploaded File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Form Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Uploaded File": {
+      "main": [
+        [
+          {
+            "node": "Normalize Form Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Form Intake": {
+      "main": [
+        []
+      ]
+    }
+  }
+}
